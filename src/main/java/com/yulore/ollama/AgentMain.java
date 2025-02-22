@@ -55,6 +55,7 @@ public class AgentMain {
         final MasterService masterService = redisson.getRemoteService(_service_master)
                 .get(MasterService.class, RemoteInvocationOptions.defaults().noAck().noResult());
 
+        localOllamaService.setAgentId(agentId);
         localOllamaService.setChatHook(
                 // start to work
                 () -> masterService.updateAgentStatus(agentId, 0, System.currentTimeMillis()),

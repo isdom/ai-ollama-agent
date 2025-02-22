@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -19,7 +20,12 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
     }
 
     @Override
-    public String chat(final String[] roleAndContents) {
+    public void setAgentId(final String agentId) {
+        _agentId = agentId;
+    }
+
+    @Override
+    public Map<String, String> chat(final String[] roleAndContents) {
         if (null != _onStart) {
             _onStart.run();
         }
@@ -32,11 +38,15 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
                         .content(roleAndContents[i+1])
                         .build());
             }
-            return _ollamaApi.chat(OllamaApi.ChatRequest.builder()
+            final String result = _ollamaApi.chat(OllamaApi.ChatRequest.builder()
                     .model(_model)
                     .stream(false)
                     .messages(messages.toArray(new OllamaApi.Message[0]))
                     .build());
+            return Map.of(
+                    "agent", _agentId,
+                    "result", result
+                    );
         } finally {
             if (null != _onEnd) {
                 _onEnd.run();
@@ -62,4 +72,5 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
 
     private Runnable _onStart = null;
     private Runnable _onEnd = null;
+    private String _agentId;
 }
