@@ -2,7 +2,12 @@
 
 export NACOS_ENDPOINT=
 export NACOS_NAMESPACE=
+
 export NACOS_DATAID=ollama-agent
+export METER_DATAID=prometheus
+export METER_GROUP=
+export REDIS_DATAID=redis
+export REDIS_GROUP=
 
 export SLS_ENDPOINT=cn-beijing-intranet.log.aliyuncs.com
 export SLS_PROJECT=

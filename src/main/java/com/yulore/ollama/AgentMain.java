@@ -17,19 +17,18 @@ import org.springframework.stereotype.Component;
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import java.util.UUID;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.function.Function;
 
 @Slf4j
 @Component
 public class AgentMain {
     @PostConstruct
-    public void start() throws InterruptedException {
+    public void start() {
         log.info("Ollama-Agent: started with redisson: {}", redisson.getConfig().useSingleServer().getDatabase());
 
         scheduler = Executors.newScheduledThreadPool(1, new DefaultThreadFactory("reportExecutor"));
+        workers = Executors.newFixedThreadPool(_service_workers, new DefaultThreadFactory("workersExecutor"));
 
         checkAndScheduleNext((tm) -> {
             if (!localOllamaService.isOllamaOnline()) {
@@ -50,20 +49,21 @@ public class AgentMain {
     private void registerAndUpdateAgentStatus() {
         // CosyVoice is online, stop check and begin to register RemoteService
         final RRemoteService rs = redisson.getRemoteService(_service_ollama);
-        rs.register(OllamaService.class, localOllamaService);
+        rs.register(OllamaService.class, localOllamaService, _service_workers, workers);
 
         final MasterService masterService = redisson.getRemoteService(_service_master)
                 .get(MasterService.class, RemoteInvocationOptions.defaults().noAck().noResult());
 
         localOllamaService.setAgentId(agentId);
+        final Runnable doUpdate = () -> masterService.updateAgentStatus(agentId, rs.getFreeWorkers(OllamaService.class), System.currentTimeMillis());
         localOllamaService.setChatHook(
                 // start to work
-                () -> masterService.updateAgentStatus(agentId, 0, System.currentTimeMillis()),
+                doUpdate,
                 // worker back to idle
-                () -> masterService.updateAgentStatus(agentId, 1, System.currentTimeMillis()));
+                ()->scheduler.schedule(doUpdate, 10, TimeUnit.MILLISECONDS));
 
         checkAndScheduleNext((startedTimestamp)-> {
-            masterService.updateAgentStatus(agentId, rs.getFreeWorkers(OllamaService.class), System.currentTimeMillis());
+            doUpdate.run();
             return true;
         }, System.currentTimeMillis());
     }
@@ -82,6 +82,7 @@ public class AgentMain {
 
     @PreDestroy
     public void stop() {
+        workers.shutdownNow();
         scheduler.shutdownNow();
         final RRemoteService remoteService = redisson.getRemoteService(_service_ollama);
         remoteService.deregister(OllamaService.class);
@@ -91,6 +92,9 @@ public class AgentMain {
 
     @Value("${service.ollama}")
     private String _service_ollama;
+
+    @Value("${service.workers:1}")
+    private int _service_workers;
 
     @Value("${service.master}")
     private String _service_master;
@@ -105,6 +109,7 @@ public class AgentMain {
     private long _check_interval;
 
     private ScheduledExecutorService scheduler;
+    private ExecutorService workers;
 
     private final String agentId = UUID.randomUUID().toString();
 }
