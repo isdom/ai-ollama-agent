@@ -1,18 +1,32 @@
 package com.yulore.ollama.service;
 
 import com.google.common.base.Strings;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.Timer;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 @Slf4j
+@RequiredArgsConstructor
 @Service
 public class LocalOllamaServiceImpl implements LocalOllamaService {
+    @PostConstruct
+    private void init() {
+        api_timer = timerProvider.getObject("llm.ds32.duration", "", new String[]{"ollama", "chat"});
+        gaugeProvider.getObject((Supplier<Number>)_workers::get, "llm.ds32.workers", "", new String[0]);
+    }
+
     @Override
     public void setChatHook(final Runnable onStart, final Runnable onEnd) {
         _onStart = onStart;
@@ -30,6 +44,7 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
             _onStart.run();
         }
 
+        _workers.incrementAndGet();
         try {
             final List<OllamaApi.Message> messages = new ArrayList<>();
             for (int i = 0; i < roleAndContents.length; i+=2) {
@@ -38,16 +53,19 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
                         .content(roleAndContents[i+1])
                         .build());
             }
+            final Timer.Sample sample = Timer.start();
             final String result = _ollamaApi.chat(OllamaApi.ChatRequest.builder()
                     .model(_model)
                     .stream(false)
                     .messages(messages.toArray(new OllamaApi.Message[0]))
                     .build());
+            sample.stop(api_timer);
             return Map.of(
                     "agent", _agentId,
                     "result", result
                     );
         } finally {
+            _workers.decrementAndGet();
             if (null != _onEnd) {
                 _onEnd.run();
             }
@@ -70,7 +88,13 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
     @Autowired
     private OllamaApi _ollamaApi;
 
+    final ObjectProvider<Timer> timerProvider;
+    private final ObjectProvider<Gauge> gaugeProvider;
+
+    private Timer api_timer;
+
     private Runnable _onStart = null;
     private Runnable _onEnd = null;
     private String _agentId;
+    private final AtomicInteger _workers = new AtomicInteger(0);
 }
