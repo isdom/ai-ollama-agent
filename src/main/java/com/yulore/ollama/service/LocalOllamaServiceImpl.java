@@ -1,6 +1,7 @@
 package com.yulore.ollama.service;
 
 import com.google.common.base.Strings;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -25,6 +27,7 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
     private void init() {
         api_timer = timerProvider.getObject("llm.ds32.duration", "", new String[]{"ollama", "chat"});
         gaugeProvider.getObject((Supplier<Number>)_workers::get, "llm.ds32.workers", "", new String[0]);
+        chat_counter = counterProvider.getObject("llm.ds32.chat", "", new String[0]);
     }
 
     @Override
@@ -40,6 +43,9 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
 
     @Override
     public Map<String, String> chat(final String[] roleAndContents) {
+        final int idx = _chatCount.incrementAndGet();
+        final long startInMs = System.currentTimeMillis();
+        log.info("[{}]: chat start", idx);
         if (null != _onStart) {
             _onStart.run();
         }
@@ -66,9 +72,11 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
                     );
         } finally {
             _workers.decrementAndGet();
+            chat_counter.increment();
             if (null != _onEnd) {
                 _onEnd.run();
             }
+            log.info("[{}]: chat end cost: {} s", idx, (System.currentTimeMillis() - startInMs) / 1000.0f);
         }
     }
 
@@ -88,13 +96,16 @@ public class LocalOllamaServiceImpl implements LocalOllamaService {
     @Autowired
     private OllamaApi _ollamaApi;
 
-    final ObjectProvider<Timer> timerProvider;
+    private final ObjectProvider<Timer> timerProvider;
     private final ObjectProvider<Gauge> gaugeProvider;
+    private final ObjectProvider<Counter> counterProvider;
 
     private Timer api_timer;
+    private Counter chat_counter;
 
     private Runnable _onStart = null;
     private Runnable _onEnd = null;
     private String _agentId;
     private final AtomicInteger _workers = new AtomicInteger(0);
+    private final AtomicInteger _chatCount = new AtomicInteger(0);
 }
