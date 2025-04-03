@@ -1,6 +1,7 @@
 package com.yulore.ollama.service;
 
 import com.google.common.base.Strings;
+import com.yulore.metric.MetricCustomized;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Timer;
@@ -16,7 +17,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -25,9 +25,10 @@ import java.util.function.Supplier;
 public class LocalOllamaServiceImpl implements LocalOllamaService {
     @PostConstruct
     private void init() {
-        api_timer = timerProvider.getObject("llm.ds32.duration", "", new String[]{"ollama", "chat"});
-        gaugeProvider.getObject((Supplier<Number>)_workers::get, "llm.ds32.workers", "", new String[0]);
-        chat_counter = counterProvider.getObject("llm.ds32.chat", "", new String[0]);
+        api_timer = timerProvider.getObject("llm.ds32.duration",
+                MetricCustomized.builder().tags(List.of("ollama", "chat")).build());
+        gaugeProvider.getObject((Supplier<Number>)_workers::get, "llm.ds32.workers", null);
+        chat_counter = counterProvider.getObject("llm.ds32.chat", null);
     }
 
     @Override
